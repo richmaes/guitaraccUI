@@ -106,6 +106,65 @@
 //     Users select the active patch using a UI control such as a tab bar, dropdown, or segmented control at the top of the view.
 //     Edits affect only the currently selected patch and require explicit user confirmation (e.g., via a save/apply button) to persist changes.
 //
+// Patch Selection & Sync Behavior
+// - Overview:
+//     The Patch view stays synchronized with the basestation’s currently active patch and updates the device when the user selects a different patch.
+// - On View Appear:
+//     1. Query the device for the currently selected patch (tries `config show`, then `status`).
+//     2. Set the UI’s selected patch to match the device.
+//     3. Export the selected patch configuration using `config export patch <n>` and display it in the view (raw text/JSON until structured parsing is implemented).
+// - On Patch Change (user taps a different patch):
+//     1. Issue `config select <n>` to switch the device’s active patch.
+//     2. Issue `config export patch <n>` to retrieve the new patch configuration.
+//     3. Update the view with the exported configuration.
+// - Error Handling:
+//     - If the device is disconnected, the UI disables patch actions until reconnected.
+//     - If a command times out or returns an error, the view shows the last known export and a log entry appears in the CLI panel.
+// - Concurrency/UX:
+//     - The view prevents overlapping operations (debounce/cancellation as needed) to keep the UI responsive when switching patches quickly.
+//     - Auto-reconnect attempts continue in the background; when connection is re-established, the view can re-run the export for the currently selected patch.
+// - Connection-State Sync:
+//     - If the Patch view is visible and the device connection becomes established (after auto-reconnect), the view re-queries the current patch index and re-exports the configuration to ensure the UI reflects the device state.
+//
+// - No Default Patch Assumption:
+//     - The GUI does not blindly assume patch 0 on startup. It queries the device for the current patch index; only if the device does not report a value does the GUI retain the current UI selection.
+//
+// - Logging / Diagnostics:
+//     - During initial sync, the GUI logs: "Sync: querying current patch index…" and then the discovered index and source (e.g., from `config show` or `status`).
+//     - If the index cannot be determined, the GUI logs: "Sync: could not determine current patch index." and proceeds using the current UI selection.
+//
+// Device CLI Contract (Patch)
+// - Commands:
+//     - `config select <n>`: Makes patch `<n>` the active patch (0–15).
+//     - `config export patch <n>`: Outputs the full configuration for patch `<n>` (text/JSON; treated as multi-line output).
+//     - `config show` / `status`: Used to infer the currently selected patch when the view appears.
+// - Responses:
+//     - `config select <n>` should complete quickly; any errors should be surfaced in the CLI output.
+//     - `config export patch <n>` may return multi-line output (often JSON); the GUI collects until a quiet period.
+// - Notes:
+//     - The GUI currently displays the raw export text. A future enhancement will parse this into a structured model for field-by-field editing and saving.
+//
+// Save/Sync Behavior:
+// - Purpose:
+//     Provide an explicit action to synchronize the GUI with the currently selected patch on the basestation.
+// - Behavior on Press:
+//     1. Issue `config select <n>` to instruct the basestation to load/activate the selected patch (where `<n>` is the patch index chosen in the UI).
+//     2. Issue `config export patch <n>` to retrieve the full configuration for that patch (typically JSON/multi-line text).
+//     3. Parse and display the resulting configuration in the Patch Configuration View so users can review the live settings.
+// - Notes:
+//     - The GUI may also automatically perform step (2) when the user changes the selected patch, but the explicit Save/Sync button ensures users can refresh on demand.
+//     - If the export returns JSON, the GUI should attempt to parse it into a structured model for field-by-field editing; until parsing is implemented, the raw JSON/text can be displayed.
+//     - Error cases (timeouts, invalid responses) should be surfaced to the user with clear feedback, leaving the last known configuration visible.
+//
+// Data Flow:
+// - User presses Save/Sync → GUI sends `config select <n>` → GUI sends `config export patch <n>` → GUI collects multi-line output → GUI parses (or displays raw) → Patch view updates.
+//
+// Implementation Status:
+// - [x] Save/Sync button added to Patch view that triggers `config select` and `config export patch`.
+// - [x] USBSerialManager helper to execute a command and collect multi-line output with per-line timeout.
+// - [ ] Parse exported patch config JSON into a structured model and bind to editable fields.
+// - [ ] Persist edits back to device via appropriate `config` commands.
+//
 // Status & Monitoring View:
 // - Purpose:
 //     Display real-time system status including number of connected devices, MIDI output state, and configuration area status.
@@ -146,4 +205,24 @@
 //
 // Note:
 // Each view is modular; users can work in one area while keeping the CLI display visible for transparency and debugging. All views are kept synchronized with the parsed CLI state and error events.
+//
+//
+// Implementation To-Do List
+//
+// - [x] Create USBSerialManager for port discovery, probing, and CLI communication
+// - [x] Scaffold GuitarAccApp.swift with main app entry and navigation
+// - [x] Add stub views for: Status, Global Settings, Patch Config, MIDI Stats, Import/Export, Terminal, CLI Interaction Display
+// - [x] Wire up patch configuration view with patch selector and CLI-driven data flow (auto sync on appear + on change + on reconnect, export display, no default-to-0)
+// - [ ] Implement backend command controller for issuing CLI commands and parsing responses
+// - [ ] Wire up global settings view with live data binding and CLI-driven updates
+// - [ ] Implement status and monitoring view with periodic updates
+// - [ ] Implement MIDI statistics and diagnostics view
+// - [ ] Complete configuration import/export view with file/text handling and validation
+// - [ ] Build advanced/terminal view with full command entry and logging
+// - [ ] Enhance CLI interaction display (filtering, clear log, detach)
+// - [ ] Integrate robust error handling, notifications, and connection state UI
+// - [ ] Polish UI layout, navigation, and macOS app details
+// - [ ] Add testing (unit/UI/behavioral as appropriate)
+//
+// Note: This checklist will be updated as implementation progresses.
 
