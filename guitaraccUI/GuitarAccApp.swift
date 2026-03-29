@@ -24,6 +24,7 @@ struct GuitarAccApp: App {
     var body: some Scene {
         WindowGroup {
             MainAppView()
+            
                 .environmentObject(serialManager)
         }
         .modelContainer(sharedModelContainer)
@@ -49,7 +50,7 @@ struct MainAppView: View {
             switch selection {
             case 0: StatusView()
             case 1: GlobalSettingsView()
-            case 2: PatchConfigView()
+            case 2: PatchView()
             case 3: MIDIStatisticsView()
             case 4: ConfigImportExportView()
             case 5: TerminalView()
