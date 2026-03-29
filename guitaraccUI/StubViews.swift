@@ -28,6 +28,9 @@ struct PatchConfigView: View {
     @State private var selectedPatch: Int = 0
     @State private var exportedPatchText: String = ""
     @State private var isLoading: Bool = false
+    @State private var accelMidiChannels: [Int] = Array(repeating: 1, count: 6)
+    @State private var accelMinValues: [Int] = Array(repeating: 0, count: 6)
+    @State private var accelMaxValues: [Int] = Array(repeating: 127, count: 6)
     var body: some View {
         VStack {
             Picker("Patch", selection: $selectedPatch) {
@@ -48,6 +51,20 @@ struct PatchConfigView: View {
                 }
             }
             Text("Patch Configuration View for Patch \(selectedPatch)")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(0..<6, id: \.self) { i in
+                        AccelerometerControl(
+                            midiChannel: $accelMidiChannels[i],
+                            minValue: $accelMinValues[i],
+                            maxValue: $accelMaxValues[i],
+                            title: "Accel \(i+1)"
+                        )
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(maxHeight: 240)
             HStack {
                 Button("Save / Sync Patch") {
                     Task { @MainActor in
