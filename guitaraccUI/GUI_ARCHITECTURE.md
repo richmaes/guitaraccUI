@@ -81,8 +81,8 @@
 // - Recommend notarization and appropriate entitlements for distribution
 //
 // References
-// - UI_INTERFACE.md — Basestation CLI command set
-// - ARCHITECTURE.md — Overall system architecture
+// - UI_INTERFACE.md — https://github.com/richmaes/guitaracc/blob/main/basestation/UI_INTERFACE.md
+// - ARCHITECTURE.md — Overall system architecture of the hardware device - https://github.com/richmaes/guitaracc/blob/main/ARCHITECTURE.md
 //
 // This architecture provides a modern, robust way to manage and configure the GuitarAcc Basestation from macOS, leveraging the existing CLI for all device communication and logic.
 //
@@ -143,6 +143,40 @@
 //     - `config export patch <n>` may return multi-line output (often JSON); the GUI collects until a quiet period.
 // - Notes:
 //     - The GUI currently displays the raw export text. A future enhancement will parse this into a structured model for field-by-field editing and saving.
+//
+// Example: Patch Export Output
+// - The device returns JSON for `config export patch <n>`. Below is a real-world example for patch 8. Note that some shells include a trailing prompt and ANSI escape sequences; the GUI should ignore non-JSON lines and strip escape codes when parsing.
+//
+// ```json
+// {
+//   "version": 1,
+//   "config": {
+//     "patches": [
+//       {
+//         "patch_num": 8,
+//         "patch_name": "Patch 8",
+//         "velocity_curve": 0,
+//         "cc_mapping": [16, 17, 18, 19, 20, 21],
+//         "led_mode": 0,
+//         "accel_deadzone": 1,
+//         "accel_min": [0, 0, 0, 0, 0, 0],
+//         "accel_max": [127, 127, 127, 127, 127, 127],
+//         "accel_invert": 0
+//       }
+//     ]
+//   }
+// }
+// ```
+//
+// Trailing prompt example (to be ignored by parser):
+// ```
+// [1;32mGuitarAcc:~$ [m
+// ```
+//
+// Parsing considerations:
+// - Collect multi-line output and attempt to extract the JSON object by balancing braces `{`/}`.
+// - Strip ANSI escape sequences and any trailing prompt line before JSON decoding.
+// - Validate that `patch_num` matches the requested export index and surface inconsistencies.
 //
 // Save/Sync Behavior:
 // - Purpose:
@@ -225,4 +259,113 @@
 // - [ ] Add testing (unit/UI/behavioral as appropriate)
 //
 // Note: This checklist will be updated as implementation progresses.
+
+## PatchView Layout and Scrolling
+
+To ensure consistent terminology and implementation across the app, PatchView is organized into three top-level vertical areas, followed by feature sections within the control panel.
+
+### Top-Level Areas (Vertical Order)
+1. PatchHeaderArea 
+   - Purpose: Global actions and status. Includes Save/Load (current and future), undo/redo, global transport or mode toggles.
+   - Behavior: Fixed at the top of the PatchView. May include title and global indicators.
+
+2. PatchSelectionArea
+   - Purpose: Patch browsing and selection. Includes search, filters, banks/categories, and favorites.
+   - Behavior: Updates the active patch context that drives the rest of the UI.
+
+3. ControlPanelArea
+   - Purpose: Houses all performance and configuration controls (initially accelerometer controls; expandable to modulation, effects, routing, etc.).
+   - Behavior: Typically scrollable. Supports horizontal sections for wide sets of controls.
+
+### Control Panel Sections
+- AccelerometerControlsSection: Contains multiple accelerometer modules (e.g., 6 controls in a row).
+- ModulationControlsSection: LFOs, envelopes, modulation routing (future).
+- EffectsControlsSection: Reverb, delay, distortion, etc. (future).
+- RoutingControlsSection: Signal routing and mapping (future).
+
+Each Section may optionally contain one or more Groups (e.g., AccelerometerControlsGroup) when sub-clustering is useful.
+
+## Scrolling Strategy
+
+The PatchView supports scrolling to adapt to content that exceeds the available space. Use the following patterns:
+
+1) Vertical scroll for entire PatchView
+- Wrap the full vertical stack in `ScrollView(.vertical)`.
+- Show indicators via `.scrollIndicators(.visible)` when appropriate.
+- Recommended when the combined height of header, selection, and control panel can overflow.
+
+2) Static header + scrolling content
+- Keep `PatchHeaderArea` and `PatchSelectionArea` fixed in a parent `VStack`.
+- Wrap `ControlPanelArea` in a `ScrollView(.vertical)` to allow the main content to scroll independently.
+- Useful when the control area is the primary growth region.
+
+3) Horizontal scrolling inside ControlPanelArea
+- For wide collections (e.g., many accelerometer modules), use `ScrollView(.horizontal)` around a horizontal stack of modules.
+- Combine with a vertical scroll at the top level, if needed.
+
+4) Bidirectional overflow (advanced)
+- Prefer vertical scrolling at the top level and horizontal scrolling within sections to avoid gesture conflicts.
+- Avoid nesting scroll views with the same axis.
+
+### Platform Considerations
+- iOS/iPadOS:
+  - Use `.scrollIndicators(.visible)` for discoverability.
+  - Prefer material backgrounds (e.g., `.thinMaterial`, `.ultraThinMaterial`) for layered look.
+- macOS:
+  - System scrollbars appear automatically on scroll; `.scrollIndicators(.visible)` is still supported.
+  - Consider `.pickerStyle(.menu)` or `.segmented)` instead of wheel styles.
+
+## Accessibility and UI Testing Identifiers
+Use stable identifiers derived from the same vocabulary:
+- PatchHeaderArea.SaveButton
+- PatchSelectionArea.SearchField
+- ControlPanelArea.AccelerometerControlsSection.AccelerometerControl.<index>
+
+These identifiers should be applied via `.accessibilityIdentifier("…")` where applicable.
+
+## View and ViewModel Naming Conventions
+- Views: PatchHeaderArea, PatchSelectionArea, ControlPanelArea, AccelerometerControlsSection
+- ViewModels: PatchHeaderViewModel, PatchSelectionViewModel, ControlPanelViewModel, AccelerometerControlsViewModel
+
+This naming scheme aligns code, documentation, and team communication.
+
+## Example Structure (SwiftUI Sketch)
+```swift
+struct PatchView: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            PatchHeaderArea()
+                .accessibilityIdentifier("PatchHeaderArea")
+
+            PatchSelectionArea()
+                .accessibilityIdentifier("PatchSelectionArea")
+
+            // Either scroll the entire area here, or scroll within sections
+            ScrollView(.vertical) {
+                ControlPanelArea()
+                    .accessibilityIdentifier("ControlPanelArea")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+            }
+            .scrollIndicators(.visible)
+        }
+        .padding()
+    }
+}
+
+struct ControlPanelArea: View {
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 16) {
+                AccelerometerControlsSection()
+                // Future: ModulationControlsSection(), EffectsControlsSection(), etc.
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+        }
+        .scrollIndicators(.visible)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
 
