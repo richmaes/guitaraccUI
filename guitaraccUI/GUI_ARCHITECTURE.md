@@ -247,6 +247,13 @@
 // - [x] Scaffold GuitarAccApp.swift with main app entry and navigation
 // - [x] Add stub views for: Status, Global Settings, Patch Config, MIDI Stats, Import/Export, Terminal, CLI Interaction Display
 // - [x] Wire up patch configuration view with patch selector and CLI-driven data flow (auto sync on appear + on change + on reconnect, export display, no default-to-0)
+// - [x] Create VirtualPortControl mixer-strip view with topology, function, and output controls
+// - [x] Integrate VirtualPortControlsSection into PatchView ControlPanelArea
+// - [x] Dynamic patch button count driven by device capability (queryPatchCount)
+// - [ ] Implement device capability discovery sequence (topology count, function unit count)
+// - [ ] Parse patch export JSON into PatchConfig model struct
+// - [ ] Bind parsed patch data to VirtualPortControl and AccelerometerControl instances
+// - [ ] Implement write-back: control edits issue CLI commands to device
 // - [ ] Implement backend command controller for issuing CLI commands and parsing responses
 // - [ ] Wire up global settings view with live data binding and CLI-driven updates
 // - [ ] Implement status and monitoring view with periodic updates
@@ -259,6 +266,162 @@
 // - [ ] Add testing (unit/UI/behavioral as appropriate)
 //
 // Note: This checklist will be updated as implementation progresses.
+
+## Device Capability Discovery
+
+### Overview
+The GUI must not hardcode assumptions about device features. Instead, it queries the connected basestation on connection to discover its capabilities, and adapts the UI accordingly. When no device is connected, capability-driven UI elements are hidden or show a placeholder state.
+
+### Discovery Timing
+- **On successful connection**: Immediately after the CLI probe succeeds, the GUI runs a capability discovery sequence before populating any views.
+- **On reconnection**: Re-runs the full discovery sequence; cached capabilities from a previous session are discarded.
+- **On disconnection**: All capability values reset to zero/empty. Views revert to their disconnected state.
+
+### Device-Level Capabilities (Queried Once Per Connection)
+These are structural properties of the firmware that do not change when the user switches patches.
+
+| Capability | CLI Command | What it controls in the GUI |
+|---|---|---|
+| **Patch count** | `config list` (count `Patch <N>` lines) | Number of patch buttons in PatchSelectionArea. Zero = no buttons, placeholder shown. |
+| **Topology instance count** | `topo show` (count reported instances) | Number of VirtualPortControl mixer strips rendered in VirtualPortControlsSection. |
+| **Function unit count** | `func show` (probe indices 0-7, count valid responses) | Range of function unit indices available in VirtualPortControl pickers. |
+| **Supported topology types** | `topo show` (parse available types) | Options shown in the topology type picker within each VirtualPortControl. |
+| **Supported mixer types** | Inferred from firmware (currently fixed at 5: Passthrough, Sum, Average, Max, Min) | Options in the mixer type picker for dual-input topologies. |
+| **Accelerometer axis count** | Inferred from firmware (currently fixed at 6: X, Y, Z, Roll, Pitch, Yaw) | Number of AccelerometerControl instances and axis picker options. |
+| **MIDI channel range** | Inferred from firmware (1-16) | MIDI channel picker range in global settings and per-control. |
+| **Max CC value** | Inferred from firmware (0-127) | Knob and text field ranges for CC mapping. |
+| **Firmware version** | `status` (parse version string) | Displayed in status view; may gate feature availability in future. |
+
+### Capability Storage
+- Capabilities are stored as `@Published` properties on `USBSerialManager` (e.g., `patchCount`, `topologyInstanceCount`, `functionUnitCount`).
+- Views observe these properties and reactively show/hide controls.
+- When a capability is zero or unknown, the corresponding UI section shows a disabled or placeholder state rather than broken controls.
+
+### Discovery Sequence (Post-Connection)
+1. `config list` -> set `patchCount`
+2. `topo show` -> set `topologyInstanceCount`, parse available topology types
+3. `func show` -> set `functionUnitCount`
+4. `status` -> set `firmwareVersion`, connected device count, MIDI output state
+
+### View Adjustments Driven by Device Capabilities
+
+| View / Control | Disconnected State | Connected State |
+|---|---|---|
+| **PatchSelectionArea** | "No basestation connected" placeholder, no buttons, search hidden | Shows exactly `patchCount` patch buttons, search enabled |
+| **VirtualPortControlsSection** | Hidden or collapsed | Renders `topologyInstanceCount` mixer strips |
+| **VirtualPortControl topology picker** | N/A | Populated with discovered topology types only |
+| **VirtualPortControl function picker** | N/A | Range limited to `0..<functionUnitCount` |
+| **AccelerometerControlsSection** | Hidden or shows static defaults | Renders controls matching axis count |
+| **Global Settings View** | Fields disabled, placeholder values | Fields enabled, populated from `config export global` |
+| **Status View** | "Not connected" indicator | Live status from `status` command, firmware version shown |
+| **MIDI Statistics View** | Counters at zero, refresh disabled | Live data from `midi rx_stats`, reset enabled |
+
+## Patch Data Binding
+
+### Overview
+When the user selects a patch, the GUI fetches that patch's full configuration from the device and populates all controls in the ControlPanelArea with the patch's values. Edits flow back to the device via CLI commands. This section defines which data comes from the patch export and how it maps to controls.
+
+### Data Source
+- **Command**: `config export patch <n>` returns JSON for the selected patch.
+- **Topology**: `topo show` returns topology configuration for the current patch (topology instances are per-patch).
+- **Function units**: `func show <idx>` returns function unit parameters for the current patch context.
+
+### Patch Export JSON Structure (Current)
+```json
+{
+  "version": 1,
+  "config": {
+    "patches": [
+      {
+        "patch_num": 0,
+        "patch_name": "Patch 0",
+        "velocity_curve": 0,
+        "cc_mapping": [16, 17, 18, 19, 20, 21],
+        "led_mode": 0,
+        "accel_deadzone": 1,
+        "accel_min": [0, 0, 0, 0, 0, 0],
+        "accel_max": [127, 127, 127, 127, 127, 127],
+        "accel_invert": 0
+      }
+    ]
+  }
+}
+```
+
+### Topology State (Per-Patch, from `topo show`)
+Each topology instance reports:
+- Topology type (T1-T4)
+- Input axis/axes
+- Function unit index/indices
+- MIDI CC output(s)
+- Mixer type (per-patch, shared across all dual-input instances)
+
+### Control-to-Data Mapping
+
+#### VirtualPortControl (one per topology instance)
+| Control | Data Source | Write-Back Command |
+|---|---|---|
+| Topology type picker | `topo show` instance type | `topo config <inst> <type> <accel> [func] [cc]` |
+| Input axis 1 picker | `topo show` instance accel source | `topo config <inst> ...` |
+| Input axis 2 picker (T2/T4) | `topo show` instance second accel | `topo config <inst> ...` |
+| Mixer type picker | `topo show` mixer type | `topo mixer <type>` |
+| Function index picker | `topo show` instance func index | `topo config <inst> ...` |
+| Output min knob | `func show <idx>` out_min | `func linear <idx> <in_min> <in_max> <out_min> <out_max>` |
+| Output max knob | `func show <idx>` out_max | `func linear <idx> ...` |
+| MIDI CC 1 field | `topo show` instance midi_cc | `topo config <inst> ...` |
+| MIDI CC 2 field (T3/T4) | `topo show` instance second cc | `topo config <inst> ...` |
+
+#### AccelerometerControl (one per axis)
+| Control | Data Source (Patch Export JSON) | Write-Back Command |
+|---|---|---|
+| MIDI CC (channel picker, currently) | `cc_mapping[axis_index]` | `config cc <axis> <cc_num>` |
+| Min knob | `accel_min[axis_index]` | `config accel_min <axis> <val>` |
+| Max knob | `accel_max[axis_index]` | `config accel_max <axis> <val>` |
+| Invert toggle (future) | `accel_invert` bitmask bit for axis | `config accel_invert <axis> <0\|1>` |
+
+#### Patch-Level Fields (PatchHeaderArea or dedicated section)
+| Field | Data Source (Patch Export JSON) | Write-Back Command |
+|---|---|---|
+| Patch name | `patch_name` | Future: `config patch_name <n> <name>` |
+| Velocity curve | `velocity_curve` | `config velocity_curve <val>` |
+| LED mode | `led_mode` | Future: `config led_mode <val>` |
+| Accel deadzone | `accel_deadzone` | Future: `config accel_deadzone <val>` |
+
+### Patch Load Sequence (On Patch Selection)
+1. Issue `config select <n>` to activate the patch on the device.
+2. Issue `config export patch <n>` to get the patch JSON.
+3. Parse JSON into a `PatchConfig` model struct.
+4. Issue `topo show` to get topology state for the now-active patch.
+5. Parse topology output into per-instance `VirtualPortConfig` structs.
+6. For each referenced function unit, issue `func show <idx>` to get linear params.
+7. Bind all parsed data to the corresponding UI controls.
+
+### Patch Save Sequence (On User Edit)
+- Individual control changes issue their write-back command immediately (or on explicit save, per user preference).
+- After all changes, issue `config save` to persist to flash.
+- Re-export to confirm the device accepted the values.
+
+### Structured Model (Swift)
+The parsed patch data should be held in a `PatchConfig` struct that mirrors the JSON:
+```swift
+struct PatchConfig {
+    var patchNum: Int
+    var patchName: String
+    var velocityCurve: Int
+    var ccMapping: [Int]        // 6 values
+    var ledMode: Int
+    var accelDeadzone: Int
+    var accelMin: [Int]         // 6 values
+    var accelMax: [Int]         // 6 values
+    var accelInvert: Int        // bitmask
+    var topologyConfigs: [VirtualPortConfig]  // from topo show
+}
+```
+
+### Error and Disconnection Behavior
+- If a patch load fails mid-sequence, the GUI retains the last successfully loaded data and shows a warning.
+- If the device disconnects during editing, unsaved changes are preserved in the local model. On reconnect, the GUI can offer to re-push local state or re-pull from device.
+- Validation: The GUI should validate values against known ranges before issuing write-back commands. Out-of-range values are rejected locally with inline feedback.
 
 ## PatchView Layout and Scrolling
 
@@ -278,7 +441,8 @@ To ensure consistent terminology and implementation across the app, PatchView is
    - Behavior: Typically scrollable. Supports horizontal sections for wide sets of controls.
 
 ### Control Panel Sections
-- AccelerometerControlsSection: Contains multiple accelerometer modules (e.g., 6 controls in a row).
+- VirtualPortControlsSection: Horizontal array of VirtualPortControl mixer strips (one per topology instance, count driven by device capability discovery).
+- AccelerometerControlsSection: Contains multiple accelerometer modules (count driven by device axis count, typically 6).
 - ModulationControlsSection: LFOs, envelopes, modulation routing (future).
 - EffectsControlsSection: Reverb, delay, distortion, etc. (future).
 - RoutingControlsSection: Signal routing and mapping (future).

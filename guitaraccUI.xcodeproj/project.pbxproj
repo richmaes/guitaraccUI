@@ -10,11 +10,27 @@
 		CA14DCA12F73C86C00316826 /* ORSSerial in Frameworks */ = {isa = PBXBuildFile; productRef = CA14DCA02F73C86C00316826 /* ORSSerial */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		CA504E642F99EBC400AFBCC4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CAD472FB2F6A7F7900198368 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CAD473022F6A7F7900198368;
+			remoteInfo = guitaraccUI;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		CA504E602F99EBC400AFBCC4 /* guitaraccUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = guitaraccUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CAD473032F6A7F7900198368 /* guitaraccUI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = guitaraccUI.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		CA504E612F99EBC400AFBCC4 /* guitaraccUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = guitaraccUITests;
+			sourceTree = "<group>";
+		};
 		CAD473052F6A7F7900198368 /* guitaraccUI */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = guitaraccUI;
@@ -23,6 +39,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		CA504E5D2F99EBC400AFBCC4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		CAD473002F6A7F7900198368 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -38,6 +61,7 @@
 			isa = PBXGroup;
 			children = (
 				CAD473052F6A7F7900198368 /* guitaraccUI */,
+				CA504E612F99EBC400AFBCC4 /* guitaraccUITests */,
 				CAD473042F6A7F7900198368 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -46,6 +70,7 @@
 			isa = PBXGroup;
 			children = (
 				CAD473032F6A7F7900198368 /* guitaraccUI.app */,
+				CA504E602F99EBC400AFBCC4 /* guitaraccUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -53,6 +78,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		CA504E5F2F99EBC400AFBCC4 /* guitaraccUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CA504E662F99EBC400AFBCC4 /* Build configuration list for PBXNativeTarget "guitaraccUITests" */;
+			buildPhases = (
+				CA504E5C2F99EBC400AFBCC4 /* Sources */,
+				CA504E5D2F99EBC400AFBCC4 /* Frameworks */,
+				CA504E5E2F99EBC400AFBCC4 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CA504E652F99EBC400AFBCC4 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				CA504E612F99EBC400AFBCC4 /* guitaraccUITests */,
+			);
+			name = guitaraccUITests;
+			packageProductDependencies = (
+			);
+			productName = guitaraccUITests;
+			productReference = CA504E602F99EBC400AFBCC4 /* guitaraccUITests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		CAD473022F6A7F7900198368 /* guitaraccUI */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = CAD473102F6A7F7B00198368 /* Build configuration list for PBXNativeTarget "guitaraccUI" */;
@@ -83,9 +131,13 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2620;
+				LastSwiftUpdateCheck = 2640;
 				LastUpgradeCheck = 2620;
 				TargetAttributes = {
+					CA504E5F2F99EBC400AFBCC4 = {
+						CreatedOnToolsVersion = 26.4;
+						TestTargetID = CAD473022F6A7F7900198368;
+					};
 					CAD473022F6A7F7900198368 = {
 						CreatedOnToolsVersion = 26.2;
 					};
@@ -109,11 +161,19 @@
 			projectRoot = "";
 			targets = (
 				CAD473022F6A7F7900198368 /* guitaraccUI */,
+				CA504E5F2F99EBC400AFBCC4 /* guitaraccUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		CA504E5E2F99EBC400AFBCC4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		CAD473012F6A7F7900198368 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -124,6 +184,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		CA504E5C2F99EBC400AFBCC4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		CAD472FF2F6A7F7900198368 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -133,7 +200,55 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		CA504E652F99EBC400AFBCC4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CAD473022F6A7F7900198368 /* guitaraccUI */;
+			targetProxy = CA504E642F99EBC400AFBCC4 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		CA504E672F99EBC400AFBCC4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.4;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.idearockets.guitaraccUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/guitaraccUI.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/guitaraccUI";
+			};
+			name = Debug;
+		};
+		CA504E682F99EBC400AFBCC4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.4;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.idearockets.guitaraccUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/guitaraccUI.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/guitaraccUI";
+			};
+			name = Release;
+		};
 		CAD4730E2F6A7F7B00198368 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -337,6 +452,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		CA504E662F99EBC400AFBCC4 /* Build configuration list for PBXNativeTarget "guitaraccUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CA504E672F99EBC400AFBCC4 /* Debug */,
+				CA504E682F99EBC400AFBCC4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		CAD472FE2F6A7F7900198368 /* Build configuration list for PBXProject "guitaraccUI" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

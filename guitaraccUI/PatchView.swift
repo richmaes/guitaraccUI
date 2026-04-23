@@ -2,6 +2,7 @@ import SwiftUI
 
 // MARK: - PatchView (Top-level container)
 struct PatchView: View {
+    @EnvironmentObject var serialManager: USBSerialManager
     @State private var selectedPatchIndex: Int = 0
 
     var body: some View {
@@ -9,8 +10,11 @@ struct PatchView: View {
             PatchHeaderArea()
                 .accessibilityIdentifier("PatchHeaderArea")
 
-            PatchSelectionArea(selectedPatchIndex: $selectedPatchIndex)
-                .accessibilityIdentifier("PatchSelectionArea")
+            PatchSelectionArea(
+                selectedPatchIndex: $selectedPatchIndex,
+                patchCount: serialManager.patchCount
+            )
+            .accessibilityIdentifier("PatchSelectionArea")
 
             // Control panel can be the primary growth area
             ScrollView(.vertical) {
@@ -22,6 +26,11 @@ struct PatchView: View {
             .scrollIndicators(.visible)
         }
         .padding()
+        .onChange(of: serialManager.isConnected) { _, connected in
+            if !connected {
+                selectedPatchIndex = 0
+            }
+        }
     }
 }
 
@@ -65,6 +74,7 @@ struct PatchHeaderArea: View {
 // MARK: - Patch Selection
 struct PatchSelectionArea: View {
     @Binding var selectedPatchIndex: Int
+    var patchCount: Int
     @State private var searchText: String = ""
 
     var body: some View {
@@ -72,83 +82,137 @@ struct PatchSelectionArea: View {
             HStack {
                 Text("Patches").font(.headline)
                 Spacer()
-                TextField("Search patches", text: $searchText)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .frame(maxWidth: 260)
-                    .accessibilityIdentifier("PatchSelectionArea.SearchField")
+                if patchCount > 0 {
+                    TextField("Search patches", text: $searchText)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .frame(maxWidth: 260)
+                        .accessibilityIdentifier("PatchSelectionArea.SearchField")
+                }
             }
 
-            // Simple segmented control for 16 patches (0-15)
-            ScrollView(.horizontal) {
-                HStack(spacing: 8) {
-                    ForEach(0..<16, id: \.self) { idx in
-                        Button(action: { selectedPatchIndex = idx }) {
-                            Text("Patch \(idx)")
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(selectedPatchIndex == idx ? Color.accentColor.opacity(0.2) : Color.clear)
-                                .clipShape(RoundedRectangle(cornerRadius: 6))
+            if patchCount > 0 {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
+                        ForEach(0..<patchCount, id: \.self) { idx in
+                            Button(action: { selectedPatchIndex = idx }) {
+                                Text("Patch \(idx)")
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(selectedPatchIndex == idx ? Color.accentColor.opacity(0.2) : Color.clear)
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                            }
+                            .buttonStyle(.bordered)
                         }
-                        .buttonStyle(.bordered)
                     }
+                    .padding(.vertical, 4)
                 }
-                .padding(.vertical, 4)
+                .scrollIndicators(.visible)
+            } else {
+                Text("No basestation connected")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 12)
             }
-            .scrollIndicators(.visible)
         }
         .padding(8)
         .background(.thinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        .onChange(of: patchCount) { _, newCount in
+            // Clamp selection if patch count shrinks or resets
+            if newCount > 0 && selectedPatchIndex >= newCount {
+                selectedPatchIndex = 0
+            }
+        }
     }
 }
 
 // MARK: - Control Panel
 struct ControlPanelArea: View {
+    @EnvironmentObject var serialManager: USBSerialManager
     let selectedPatchIndex: Int
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Controls").font(.headline)
+        VStack(alignment: .leading, spacing: 16) {
+            // Virtual Port topology strips (only shown when device reports topology instances)
+            if serialManager.topologyInstanceCount > 0 {
+                VirtualPortControlsSection(
+                    instanceCount: serialManager.topologyInstanceCount,
+                    functionUnitCount: serialManager.functionUnitCount,
+                    discoveredMixerType: serialManager.discoveredMixerType,
+                    initialConfigs: serialManager.parsedTopologyConfigs
+                )
+            }
+        }
+    }
+}
+
+// MARK: - Virtual Port Controls Section
+struct VirtualPortControlsSection: View {
+    let instanceCount: Int
+    let functionUnitCount: Int
+    let discoveredMixerType: Int
+    var initialConfigs: [VirtualPortConfig] = []
+
+    @State private var configs: [VirtualPortConfig] = []
+    @State private var mixerType: MixerType = .average
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Virtual Ports").font(.headline)
+                Spacer()
+                Text("\(instanceCount) instances, \(functionUnitCount) functions")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             ScrollView(.horizontal) {
-                HStack(spacing: 16) {
-                    AccelerometerControlsSection()
-                    // Future: ModulationControlsSection(), EffectsControlsSection(), etc.
-                }
-                .padding(.vertical, 8)
-                .padding(.horizontal, 12)
+                VirtualPortStripArray(
+                    configs: $configs,
+                    mixerType: $mixerType
+                )
             }
             .scrollIndicators(.visible)
             .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: 8))
         }
-    }
-}
-
-// MARK: - Accelerometer Controls Section
-struct AccelerometerControlsSection: View {
-    // Example state for six accelerometer modules
-    @State private var midiChannels: [Int] = Array(repeating: 1, count: 6)
-    @State private var minValues: [Int] = Array(repeating: 0, count: 6)
-    @State private var maxValues: [Int] = Array(repeating: 127, count: 6)
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ForEach(0..<6, id: \.self) { i in
-                // Uses existing AccelerometerControl from "AccelerometerControl 2.swift"
-                AccelerometerControl(
-                    midiChannel: $midiChannels[i],
-                    minValue: $minValues[i],
-                    maxValue: $maxValues[i],
-                    title: "Accel \(i+1)"
-                )
-                .accessibilityIdentifier("ControlPanelArea.AccelerometerControlsSection.AccelerometerControl.\(i)")
-            }
+        .onAppear {
+            syncConfigArray()
+            mixerType = MixerType(rawValue: discoveredMixerType) ?? .average
         }
-        .padding(8)
+        .onChange(of: instanceCount) { _, _ in syncConfigArray() }
+        .onChange(of: initialConfigs) { _, _ in syncConfigArray() }
+        .onChange(of: discoveredMixerType) { _, newVal in
+            mixerType = MixerType(rawValue: newVal) ?? .average
+        }
+    }
+
+    /// Populate configs from real device data when available, otherwise synthesize defaults.
+    private func syncConfigArray() {
+        let target = max(instanceCount, 0)
+        // Use real device configs when they match the expected instance count.
+        if !initialConfigs.isEmpty && initialConfigs.count == target {
+            configs = initialConfigs
+            return
+        }
+        if configs.count == target { return }
+        if configs.count < target {
+            for i in configs.count..<target {
+                configs.append(VirtualPortConfig(
+                    inputAxis1: AccelAxis(rawValue: i % 6) ?? .x,
+                    functionIndex1: min(i, max(functionUnitCount - 1, 0)),
+                    midiCC1: 16 + i
+                ))
+            }
+        } else {
+            configs = Array(configs.prefix(target))
+        }
     }
 }
+
 
 #Preview {
     PatchView()
+        .environmentObject(USBSerialManager())
         .frame(width: 900, height: 600)
 }
