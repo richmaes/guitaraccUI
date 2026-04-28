@@ -36,8 +36,15 @@ struct PatchView: View {
 
 // MARK: - Header
 struct PatchHeaderArea: View {
+    @State private var showingStatus = false
+    @State private var showingGlobalSettings = false
+    @State private var showingMIDIStats = false
+    @State private var showingImport = false
+    @State private var showingExport = false
+
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
+            // Patch file actions
             Button {
                 // TODO: Save current patch/config action
             } label: {
@@ -51,6 +58,33 @@ struct PatchHeaderArea: View {
                 Label("Load", systemImage: "square.and.arrow.up")
             }
 
+            Divider().frame(height: 20)
+
+            // Device info modals
+            Button { showingStatus = true } label: {
+                Label("Status", systemImage: "waveform.path.ecg")
+            }
+            Button { showingGlobalSettings = true } label: {
+                Label("Settings", systemImage: "slider.horizontal.3")
+            }
+            Button { showingMIDIStats = true } label: {
+                Label("MIDI Stats", systemImage: "music.quarternote.3")
+            }
+
+            Divider().frame(height: 20)
+
+            // Config import/export — same style as Save/Load
+            Button {
+                showingImport = true
+            } label: {
+                Label("Import", systemImage: "arrow.down.doc")
+            }
+            Button {
+                showingExport = true
+            } label: {
+                Label("Export", systemImage: "arrow.up.doc")
+            }
+
             Spacer()
 
             Button {
@@ -58,16 +92,35 @@ struct PatchHeaderArea: View {
             } label: {
                 Label("Undo", systemImage: "arrow.uturn.left")
             }
-
             Button {
                 // TODO: Redo action
             } label: {
                 Label("Redo", systemImage: "arrow.uturn.right")
             }
+
+            Divider().frame(height: 20)
+
+            ConnectionStatusIcon()
         }
         .padding(8)
         .background(.thinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        .sheet(isPresented: $showingStatus) {
+            StatusView().frame(minWidth: 400, minHeight: 300)
+        }
+        .sheet(isPresented: $showingGlobalSettings) {
+            // Width: 3 cards × 160 + 2 gaps × 8 + 2 sides × 16 (outer padding) = 528
+            GlobalSettingsView().frame(minWidth: 528, minHeight: 420)
+        }
+        .sheet(isPresented: $showingMIDIStats) {
+            MIDIStatisticsView().frame(minWidth: 480, minHeight: 360)
+        }
+        .sheet(isPresented: $showingImport) {
+            ConfigImportExportView().frame(minWidth: 520, minHeight: 400)
+        }
+        .sheet(isPresented: $showingExport) {
+            ConfigImportExportView().frame(minWidth: 520, minHeight: 400)
+        }
     }
 }
 
@@ -143,7 +196,38 @@ struct ControlPanelArea: View {
                     initialConfigs: serialManager.parsedTopologyConfigs
                 )
             }
+
         }
+    }
+}
+
+// MARK: - Accelerometer Controls Section
+/// Displays a horizontal row of AccelerometerControl cards backed by parent-owned binding arrays.
+/// `axisOffset` and `count` select which slice of the full 6-element arrays to show.
+struct AccelerometerControlsSection: View {
+    @Binding var scales: [Int]
+    @Binding var offsets: [Int]
+    var axisOffset: Int = 0
+    var count: Int
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                ForEach(axisOffset..<(axisOffset + count), id: \.self) { i in
+                    if i < scales.count && i < offsets.count {
+                        AccelerometerControl(
+                            title: AccelAxis(rawValue: i)?.label ?? "Axis \(i)",
+                            scale: $scales[i],
+                            offset: $offsets[i]
+                        )
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+        }
+        .scrollIndicators(.visible)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 

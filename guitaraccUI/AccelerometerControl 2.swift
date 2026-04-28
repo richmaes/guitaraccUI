@@ -63,56 +63,65 @@ struct MIDIKnob: View {
     }
 }
 
-/// AccelerometerControl: MIDI channel picker + Max and Min MIDI value knobs arranged vertically.
+/// AccelerometerControl: Per-axis calibration control showing scale and offset in milli-g.
+/// Scale: full-scale G-force range (e.g. 2000 mg = ±2.0 g maps to MIDI 0–127).
+/// Offset: center-point bias (e.g. 200 mg shifts the zero point by +0.2 g).
 struct AccelerometerControl: View {
-    @Binding var midiChannel: Int // 1...16
-    @Binding var minValue: Int // 0...127
-    @Binding var maxValue: Int // 0...127
-
     var title: String = "Accel"
+    /// Full-scale calibration in milli-g.
+    @Binding var scale: Int
+    /// Center offset in milli-g.
+    @Binding var offset: Int
 
     var body: some View {
-        VStack(spacing: 8) {
-            // Title + MIDI Channel
-            VStack(spacing: 4) {
-                Text(title)
-                    .font(.headline)
-                Picker("MIDI Channel", selection: $midiChannel) {
-                    ForEach(1...16, id: \.self) { ch in
-                        Text("Ch \(ch)").tag(ch)
+        VStack(spacing: 10) {
+            Text(title)
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Scale").font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Stepper(value: $scale, in: 100...16000, step: 100) {
+                        Text("\(scale) mg")
+                            .font(.caption2)
+                            .monospacedDigit()
+                            .frame(minWidth: 72, alignment: .trailing)
                     }
                 }
-                .pickerStyle(.menu)
-                .frame(maxWidth: 120)
             }
 
-            // Max knob above Min knob
-            MIDIKnob(value: $maxValue, label: "Max", size: 80)
-            MIDIKnob(value: $minValue, label: "Min", size: 80)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Offset").font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Stepper(value: $offset, in: -8000...8000, step: 100) {
+                        Text("\(offset) mg")
+                            .font(.caption2)
+                            .monospacedDigit()
+                            .frame(minWidth: 72, alignment: .trailing)
+                    }
+                }
+            }
         }
         .padding(8)
         .background(.ultraThinMaterial)
-        .cornerRadius(8)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .stroke(.quaternary, lineWidth: 1)
         )
-        .frame(width: 140)
+        .frame(width: 160)
     }
 }
 
 #Preview {
-    VStack {
-        HStack(spacing: 12) {
-            ForEach(0..<6, id: \.self) { i in
-                AccelerometerControl(
-                    midiChannel: .constant(1 + i % 3),
-                    minValue: .constant(0),
-                    maxValue: .constant(127),
-                    title: "Accel \(i+1)"
-                )
-            }
+    HStack(spacing: 12) {
+        ForEach(0..<6, id: \.self) { i in
+            AccelerometerControl(
+                title: AccelAxis(rawValue: i)?.label ?? "Axis \(i)",
+                scale: .constant(2000),
+                offset: .constant(0)
+            )
         }
-        .padding()
     }
+    .padding()
 }

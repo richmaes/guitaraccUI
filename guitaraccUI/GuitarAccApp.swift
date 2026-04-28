@@ -38,31 +38,18 @@ struct MainAppView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
-                Text("Status").tag(0)
-                Text("Global Settings").tag(1)
-                Text("Patch Config").tag(2)
-                Text("MIDI Stats").tag(3)
-                Text("Import/Export").tag(4)
-                Text("Terminal").tag(5)
+                Text("Patch Config").tag(0)
+                Text("Terminal").tag(1)
             }
-            .frame(minWidth: 180)
+            .frame(minWidth: 160)
         } detail: {
             switch selection {
-            case 0: StatusView()
-            case 1: GlobalSettingsView()
-            case 2: PatchView()
-            case 3: MIDIStatisticsView()
-            case 4: ConfigImportExportView()
-            case 5: TerminalView()
-            default: Text("Select a view")
+            case 1: TerminalView()
+            default: PatchView()
             }
         }
         .overlay(alignment: .bottomTrailing) {
             CLIInteractionPanel()
-        }
-        .overlay(alignment: .topTrailing) {
-            ConnectionStatusIcon()
-                .padding([.top, .trailing], 12)
         }
         .task {
             await serialManager.autoConnectCLI()

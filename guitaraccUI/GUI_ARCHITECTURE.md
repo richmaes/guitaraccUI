@@ -144,8 +144,10 @@
 // - Notes:
 //     - The GUI currently displays the raw export text. A future enhancement will parse this into a structured model for field-by-field editing and saving.
 //
-// Example: Patch Export Output
-// - The device returns JSON for `config export patch <n>`. Below is a real-world example for patch 8. Note that some shells include a trailing prompt and ANSI escape sequences; the GUI should ignore non-JSON lines and strip escape codes when parsing.
+// Example: Patch Export Output (firmware v2, captured from real device)
+// - The device returns JSON for `config export patch <n>`. Topology and function unit routing
+//   data are embedded in the patch JSON (firmware v2+). ANSI escape sequences and the trailing
+//   prompt must be stripped before JSON decoding.
 //
 // ```json
 // {
@@ -153,30 +155,37 @@
 //   "config": {
 //     "patches": [
 //       {
-//         "patch_num": 8,
-//         "patch_name": "Patch 8",
-//         "velocity_curve": 0,
-//         "cc_mapping": [16, 17, 18, 19, 20, 21],
+//         "patch_num": 0,
+//         "patch_name": "Patch 0",
 //         "led_mode": 0,
-//         "accel_deadzone": 1,
-//         "accel_min": [0, 0, 0, 0, 0, 0],
-//         "accel_max": [127, 127, 127, 127, 127, 127],
-//         "accel_invert": 0
+//         "midi_deadzone": 1,
+//         "default_mixer_type": 2,
+//         "topologies": [
+//           { "instance": 0, "enabled": true, "topology_type": 1, "accel_inputs": [0,0], "func_units": [0,0], "midi_outputs": [16,0] },
+//           ...
+//           { "instance": 5, "enabled": true, "topology_type": 1, "accel_inputs": [5,0], "func_units": [5,0], "midi_outputs": [21,0] }
+//         ],
+//         "functions": [
+//           { "unit": 0, "enabled": true, "function_type": 2, "param_count": 4, "params": [-2000,2000,0,127,0,0] },
+//           ...
+//           { "unit": 7, "enabled": true, "function_type": 2, "param_count": 4, "params": [-2000,2000,0,127,0,0] }
+//         ]
 //       }
 //     ]
 //   }
 // }
 // ```
 //
-// Trailing prompt example (to be ignored by parser):
-// ```
-// [1;32mGuitarAcc:~$ [m
-// ```
+// Notes on v2 format:
+// - cc_mapping, velocity_curve, accel_min/max/invert absent; routing expressed via topologies array.
+// - 6 topology instances (0-5) map accelerometer axes to MIDI CCs via function units.
+// - 8 function units (0-7) define LINEAR mappings (in_min, in_max, out_min, out_max).
+// - Trailing prompt ESC[1;32mGuitarAcc:~$ ESC[m stripped by CLIOutputParser.stripANSI.
 //
-// Parsing considerations:
-// - Collect multi-line output and attempt to extract the JSON object by balancing braces `{`/}`.
-// - Strip ANSI escape sequences and any trailing prompt line before JSON decoding.
-// - Validate that `patch_num` matches the requested export index and surface inconsistencies.
+// Parsing approach (implemented in CLIOutputParser):
+// - extractJSON(from:): extracts JSON object via brace balancing after ANSI strip.
+// - parsePatchExport(from:): decodes into PatchConfig using convertFromSnakeCase; optional fields for older firmware.
+// - virtualPortConfigs(from:): converts topologies + functions into [VirtualPortConfig] for UI binding.
 //
 // Save/Sync Behavior:
 // - Purpose:
@@ -196,7 +205,8 @@
 // Implementation Status:
 // - [x] Save/Sync button added to Patch view that triggers `config select` and `config export patch`.
 // - [x] USBSerialManager helper to execute a command and collect multi-line output with per-line timeout.
-// - [ ] Parse exported patch config JSON into a structured model and bind to editable fields.
+// - [x] Parse exported patch config JSON into PatchConfig model (CLIOutputParser.parsePatchExport); v2 firmware includes topologies and functions arrays.
+// - [x] Derive VirtualPortConfig instances from PatchConfig via CLIOutputParser.virtualPortConfigs(from:); bound to VirtualPortControlsSection on discovery.
 // - [ ] Persist edits back to device via appropriate `config` commands.
 //
 // Status & Monitoring View:
@@ -250,20 +260,24 @@
 // - [x] Create VirtualPortControl mixer-strip view with topology, function, and output controls
 // - [x] Integrate VirtualPortControlsSection into PatchView ControlPanelArea
 // - [x] Dynamic patch button count driven by device capability (queryPatchCount)
-// - [ ] Implement device capability discovery sequence (topology count, function unit count)
-// - [ ] Parse patch export JSON into PatchConfig model struct
-// - [ ] Bind parsed patch data to VirtualPortControl and AccelerometerControl instances
+// - [x] Implement device capability discovery sequence (topology count, function unit count, active patch load via loadActivePatchConfig)
+// - [x] Build CLIOutputParser — pure static parsing layer (ANSI strip, status, topo show, func show, JSON extraction, patch export, VirtualPortConfig derivation)
+// - [x] Define DeviceModels: PatchConfig, TopologyExport, FunctionExport as Codable/Equatable Swift structs
+// - [x] Parse patch export JSON into PatchConfig model struct (v2 firmware: includes topologies and functions arrays; optional fields for backward compat)
+// - [x] Bind parsed topology data to VirtualPortControl instances via parsedTopologyConfigs and virtualPortConfigs(from:)
+// - [x] Add unit test target (guitaraccUITests) with CLIOutputParserTests — all tests against verbatim device-captured strings
+// - [x] Simplify sidebar to Patch Config + Terminal; move Status/Settings/MIDI Stats/Import/Export to PatchHeaderArea modal sheets
+// - [x] Bind parsed patch data to AccelerometerControl instances (firmware updated: accel_scale[6] and accel_offset[6] now exported in patch JSON; AccelerometerControlsSection wired into ControlPanelArea)
 // - [ ] Implement write-back: control edits issue CLI commands to device
 // - [ ] Implement backend command controller for issuing CLI commands and parsing responses
-// - [ ] Wire up global settings view with live data binding and CLI-driven updates
-// - [ ] Implement status and monitoring view with periodic updates
-// - [ ] Implement MIDI statistics and diagnostics view
-// - [ ] Complete configuration import/export view with file/text handling and validation
+// - [ ] Wire up global settings view with live data binding and CLI-driven updates (modal sheet)
+// - [ ] Implement status and monitoring view with periodic updates (modal sheet)
+// - [ ] Implement MIDI statistics and diagnostics view (modal sheet)
+// - [ ] Complete configuration import/export view — split into separate Import and Export modal sheets
 // - [ ] Build advanced/terminal view with full command entry and logging
 // - [ ] Enhance CLI interaction display (filtering, clear log, detach)
 // - [ ] Integrate robust error handling, notifications, and connection state UI
 // - [ ] Polish UI layout, navigation, and macOS app details
-// - [ ] Add testing (unit/UI/behavioral as appropriate)
 //
 // Note: This checklist will be updated as implementation progresses.
 
@@ -428,9 +442,14 @@ struct PatchConfig {
 To ensure consistent terminology and implementation across the app, PatchView is organized into three top-level vertical areas, followed by feature sections within the control panel.
 
 ### Top-Level Areas (Vertical Order)
-1. PatchHeaderArea 
-   - Purpose: Global actions and status. Includes Save/Load (current and future), undo/redo, global transport or mode toggles.
-   - Behavior: Fixed at the top of the PatchView. May include title and global indicators.
+1. PatchHeaderArea
+   - Purpose: Global actions and device info access. Contains two groups of action buttons separated by dividers, plus undo/redo at the trailing end.
+   - Button layout (left to right):
+     - **Save** | **Load** | [divider] | **Status** | **Settings** | **MIDI Stats** | [divider] | **Import** | **Export** | [spacer] | **Undo** | **Redo**
+   - Save and Load use `Label` with SF Symbols (`square.and.arrow.down` / `square.and.arrow.up`) for file operations.
+   - Import and Export use `Label` with SF Symbols (`arrow.down.doc` / `arrow.up.doc`) and match the Save/Load button style.
+   - Status, Settings, MIDI Stats, Import, and Export each present a `.sheet` modal when tapped. These views were previously listed as sidebar navigation items and have been moved here as modal sheets.
+   - Behavior: Fixed at the top of PatchView. Background uses `.thinMaterial` with rounded corners.
 
 2. PatchSelectionArea
    - Purpose: Patch browsing and selection. Includes search, filters, banks/categories, and favorites.

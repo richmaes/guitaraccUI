@@ -15,11 +15,133 @@ struct StatusView: View {
 }
 
 struct GlobalSettingsView: View {
+    @EnvironmentObject var serialManager: USBSerialManager
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var editScales: [Int] = []
+    @State private var editOffsets: [Int] = []
+    @State private var originalScales: [Int] = []
+    @State private var originalOffsets: [Int] = []
+    @State private var isRefreshing = false
+    @State private var isSaving = false
+    @State private var saveError = false
+
+    private var hasData: Bool { !editScales.isEmpty }
+    private var accelCount: Int { min(3, editScales.count) }
+    private var gyroCount: Int { max(0, editScales.count - 3) }
+
     var body: some View {
-        VStack {
-            Text("Global Settings View")
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            HStack {
+                Text("Global Settings")
+                    .font(.title2.bold())
+                Spacer()
+                if serialManager.isConnected {
+                    Button {
+                        isRefreshing = true
+                        Task {
+                            await serialManager.loadGlobalConfig()
+                            isRefreshing = false
+                        }
+                    } label: {
+                        if isRefreshing {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Label("Refresh", systemImage: "arrow.clockwise")
+                        }
+                    }
+                    .disabled(isRefreshing || isSaving)
+                }
+            }
+
+            Divider()
+
+            if hasData {
+                Text("Accelerometer Calibration").font(.headline)
+                AccelerometerControlsSection(
+                    scales: $editScales,
+                    offsets: $editOffsets,
+                    axisOffset: 0,
+                    count: accelCount
+                )
+
+                if gyroCount > 0 {
+                    Text("Gyroscope Calibration").font(.headline)
+                        .padding(.top, 4)
+                    AccelerometerControlsSection(
+                        scales: $editScales,
+                        offsets: $editOffsets,
+                        axisOffset: 3,
+                        count: gyroCount
+                    )
+                }
+            } else {
+                Text("No calibration data — connect a basestation to load settings.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            if saveError {
+                Text("Save failed — check connection and try again.")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
             Spacer()
-        }.padding()
+
+            // Done button — sends calibration to device and saves
+            HStack {
+                Spacer()
+                Button {
+                    // Skip save if nothing changed
+                    guard editScales != originalScales || editOffsets != originalOffsets else {
+                        dismiss()
+                        return
+                    }
+                    isSaving = true
+                    saveError = false
+                    Task {
+                        let ok = await serialManager.applyGlobalConfig(
+                            scales: editScales,
+                            offsets: editOffsets
+                        )
+                        isSaving = false
+                        if ok {
+                            dismiss()
+                        } else {
+                            saveError = true
+                        }
+                    }
+                } label: {
+                    if isSaving {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Saving…")
+                        }
+                    } else {
+                        Text("Done")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!hasData || !serialManager.isConnected || isSaving || isRefreshing)
+            }
+        }
+        .padding()
+        .onAppear { syncFromDevice() }
+        .onChange(of: serialManager.currentGlobalConfig) { _, _ in syncFromDevice() }
+    }
+
+    private func syncFromDevice() {
+        guard let global = serialManager.currentGlobalConfig, !global.accelScale.isEmpty else { return }
+        let scales = global.accelScale
+        let offsets = global.accelOffset.count == global.accelScale.count
+            ? global.accelOffset
+            : Array(repeating: 0, count: global.accelScale.count)
+        editScales = scales
+        editOffsets = offsets
+        originalScales = scales
+        originalOffsets = offsets
     }
 }
 
@@ -28,9 +150,8 @@ struct PatchConfigView: View {
     @State private var selectedPatch: Int = 0
     @State private var exportedPatchText: String = ""
     @State private var isLoading: Bool = false
-    @State private var accelMidiChannels: [Int] = Array(repeating: 1, count: 6)
-    @State private var accelMinValues: [Int] = Array(repeating: 0, count: 6)
-    @State private var accelMaxValues: [Int] = Array(repeating: 127, count: 6)
+    @State private var accelScales: [Int] = Array(repeating: 2000, count: 6)
+    @State private var accelOffsets: [Int] = Array(repeating: 0, count: 6)
     var body: some View {
         VStack {
             Picker("Patch", selection: $selectedPatch) {
@@ -55,10 +176,9 @@ struct PatchConfigView: View {
                 HStack(spacing: 12) {
                     ForEach(0..<6, id: \.self) { i in
                         AccelerometerControl(
-                            midiChannel: $accelMidiChannels[i],
-                            minValue: $accelMinValues[i],
-                            maxValue: $accelMaxValues[i],
-                            title: "Accel \(i+1)"
+                            title: "Accel \(i)",
+                            scale: $accelScales[i],
+                            offset: $accelOffsets[i]
                         )
                     }
                 }
@@ -143,11 +263,74 @@ struct ConfigImportExportView: View {
 }
 
 struct TerminalView: View {
+    @EnvironmentObject var serialManager: USBSerialManager
+    @State private var commandText: String = ""
+    @FocusState private var inputFocused: Bool
+
     var body: some View {
-        VStack {
-            Text("Advanced/Terminal View")
-            Spacer()
-        }.padding()
+        VStack(spacing: 0) {
+
+            // Output area
+            ScrollViewReader { proxy in
+                ScrollView {
+                    Text(serialManager.terminalOutput.isEmpty
+                         ? (serialManager.isConnected ? "Connected — type a command below." : "Not connected.")
+                         : serialManager.terminalOutput)
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(serialManager.terminalOutput.isEmpty ? .secondary : .primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                        .padding(8)
+
+                    // Invisible anchor at the bottom for auto-scroll
+                    Color.clear.frame(height: 1).id("bottom")
+                }
+                .background(Color(nsColor: .textBackgroundColor).opacity(0.08))
+                .onChange(of: serialManager.terminalOutput) { _, _ in
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                }
+            }
+
+            Divider()
+
+            // Input bar
+            HStack(spacing: 8) {
+                Text("$")
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundStyle(.secondary)
+
+                TextField("Enter command…", text: $commandText)
+                    .textFieldStyle(.plain)
+                    .font(.system(.body, design: .monospaced))
+                    .focused($inputFocused)
+                    .onSubmit { send() }
+                    .disabled(!serialManager.isConnected)
+
+                Button("Send") { send() }
+                    .disabled(commandText.isEmpty || !serialManager.isConnected)
+
+                Divider().frame(height: 20)
+
+                Button {
+                    serialManager.clearTerminalOutput()
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .help("Clear terminal output")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(.bar)
+        }
+        .onAppear { inputFocused = true }
+    }
+
+    private func send() {
+        let cmd = commandText.trimmingCharacters(in: .whitespaces)
+        guard !cmd.isEmpty else { return }
+        serialManager.sendRawCommand(cmd)
+        commandText = ""
     }
 }
 
@@ -192,14 +375,39 @@ struct CLIInteractionPanel: View {
 
 struct ConnectionStatusIcon: View {
     @EnvironmentObject var serialManager: USBSerialManager
+    @State private var isConnecting = false
+
     var body: some View {
-        Image(systemName: serialManager.isConnected ? "antenna.radiowaves.left.and.right.circle.fill" : "antenna.radiowaves.left.and.right.slash")
-            .foregroundStyle(serialManager.isConnected ? .green : .secondary)
-            .imageScale(.large)
+        Button {
+            if serialManager.isConnected {
+                serialManager.connectedPort?.close()
+            } else {
+                isConnecting = true
+                Task {
+                    await serialManager.autoConnectCLI()
+                    isConnecting = false
+                }
+            }
+        } label: {
+            ZStack {
+                if isConnecting {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: serialManager.isConnected ? "antenna.radiowaves.left.and.right.circle.fill" : "antenna.radiowaves.left.and.right.slash")
+                        .foregroundStyle(serialManager.isConnected ? .green : .secondary)
+                        .imageScale(.large)
+                }
+            }
+            .frame(width: 24, height: 24)
             .padding(8)
             .background(.ultraThickMaterial)
             .clipShape(Circle())
             .shadow(radius: 2)
-            .help(serialManager.isConnected ? ("Connected" + (serialManager.connectedPort?.path != nil ? " to \(serialManager.connectedPort!.path)" : "")) : "Not connected")
+        }
+        .buttonStyle(.plain)
+        .disabled(isConnecting)
+        .help(isConnecting ? "Connecting…" : serialManager.isConnected ? "Connected\(serialManager.connectedPort.map { " to \($0.path)" } ?? "") — click to disconnect" : "Not connected — click to connect")
     }
 }

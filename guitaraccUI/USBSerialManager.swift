@@ -26,9 +26,14 @@ class USBSerialManager: NSObject, ObservableObject, ORSSerialPortDelegate {
     @Published var capabilitiesDiscovered: Bool = false
     @Published var parsedTopologyConfigs: [VirtualPortConfig] = []
     @Published var currentPatchConfig: PatchConfig? = nil
+    @Published var currentGlobalConfig: GlobalConfig? = nil
+    /// Raw terminal output — all bytes received from the port, ANSI stripped, appended in real time.
+    @Published var terminalOutput: String = ""
     
     private var readBuffer = Data()
     private var pendingReadContinuation: CheckedContinuation<String, Never>?
+    /// Current patch index returned by the envelope-level `current_patch` field (firmware v3+).
+    private var discoveredCurrentPatch: Int? = nil
     
     private let baudRate: Int = 115200
     private let timeout: TimeInterval = 1
@@ -188,24 +193,44 @@ class USBSerialManager: NSObject, ObservableObject, ORSSerialPortDelegate {
     // MARK: - Device Capability Discovery
 
     /// Runs the full capability discovery sequence. Call once after successful connection.
+    ///
+    /// Fast path (firmware v3+): 2 serial commands total.
+    ///   1. config export global  → GlobalConfig (calibration, fw version, patch count, current patch)
+    ///   2. config export patch N → PatchConfig  (topologies, function units, mixer type)
+    ///
+    /// Fallback path (older firmware): supplements missing JSON fields with text-based queries.
     func runCapabilityDiscovery() async {
-        log.append("Discovery: starting capability discovery…")
+        log.append("Discovery: starting…")
         capabilitiesDiscovered = false
 
-        // 1. Patch count
-        _ = await queryPatchCount()
+        // Step 1: global config — always JSON (also populates firmwareVersion, patchCount, discoveredCurrentPatch)
+        await loadGlobalConfig()
 
-        // 2. Topology capabilities
-        await queryTopologyCapabilities()
+        // Firmware version fallback for older firmware
+        if firmwareVersion.isEmpty {
+            await queryFirmwareVersion()
+        } else {
+            log.append("Discovery: firmware version from JSON: \(firmwareVersion)")
+        }
 
-        // 3. Function unit count
-        await queryFunctionUnitCount()
+        // Patch count fallback
+        if patchCount <= 0 {
+            _ = await queryPatchCount()
+        } else {
+            log.append("Discovery: patch count from JSON: \(patchCount)")
+        }
 
-        // 4. Firmware version from status
-        await queryFirmwareVersion()
+        // Current patch index: from JSON envelope if available, else text query
+        let currentIdx: Int
+        if let n = discoveredCurrentPatch {
+            currentIdx = n
+            log.append("Discovery: current patch from JSON: \(n)")
+        } else {
+            currentIdx = await queryCurrentPatchIndex() ?? 0
+        }
 
-        // 5. Load active patch config — populates topology + function data from JSON export
-        await loadActivePatchConfig()
+        // Step 2: patch config — always JSON; gives us topologies, function units, mixer type
+        await loadActivePatchConfig(index: currentIdx)
 
         capabilitiesDiscovered = true
         log.append("Discovery: complete — patches=\(patchCount), topo_instances=\(topologyInstanceCount), func_units=\(functionUnitCount), fw=\(firmwareVersion)")
@@ -303,10 +328,15 @@ class USBSerialManager: NSObject, ObservableObject, ORSSerialPortDelegate {
         log.append("Discovery: function units=\(count)")
     }
 
-    /// Load the active patch's full JSON export, then populate topology configs and capability counts.
-    /// This supersedes the quick-probe counts from topo show / func show for the active patch.
-    func loadActivePatchConfig() async {
-        let idx = await queryCurrentPatchIndex() ?? 0
+    /// Load a patch's full JSON export, then populate topology configs and capability counts.
+    /// Pass a known index to skip the text-based current-patch query.
+    func loadActivePatchConfig(index: Int? = nil) async {
+        let idx: Int
+        if let i = index {
+            idx = i
+        } else {
+            idx = await queryCurrentPatchIndex() ?? 0
+        }
         log.append("Discovery: loading patch \(idx) config…")
         let raw = await selectAndExportPatch(idx)
         guard let config = CLIOutputParser.parsePatchExport(from: raw) else {
@@ -325,6 +355,67 @@ class USBSerialManager: NSObject, ObservableObject, ORSSerialPortDelegate {
             functionUnitCount = funcs.count
         }
         log.append("Discovery: patch \(idx) loaded — \(parsedTopologyConfigs.count) topology instances, \(config.functions?.count ?? 0) function units")
+    }
+
+    /// Push updated calibration to the device using per-axis CLI commands, then persist with `config save`.
+    ///
+    /// Requires firmware commands:
+    ///   config accel_scale <axis 0-5> <value_mg>
+    ///   config accel_offset <axis 0-5> <value_mg>
+    ///
+    /// Returns true only if every axis command succeeds (no error response).
+    func applyGlobalConfig(scales: [Int], offsets: [Int]) async -> Bool {
+        guard isConnected else { return false }
+
+        log.append("Applying calibration: scale=\(scales) offset=\(offsets)")
+
+        // Send one command per axis for scale, then one per axis for offset
+        for (axis, value) in scales.enumerated() {
+            let output = await runCommandCollectingOutput(
+                "config accel_scale \(axis) \(value)", perLineTimeout: 0.6, maxLines: 10)
+            let clean = CLIOutputParser.stripANSI(output).lowercased()
+            if clean.contains("error") || clean.contains("unknown") || clean.contains("not found") {
+                log.append("accel_scale \(axis) failed — firmware may not support this command yet.")
+                return false
+            }
+        }
+
+        for (axis, value) in offsets.enumerated() {
+            let output = await runCommandCollectingOutput(
+                "config accel_offset \(axis) \(value)", perLineTimeout: 0.6, maxLines: 10)
+            let clean = CLIOutputParser.stripANSI(output).lowercased()
+            if clean.contains("error") || clean.contains("unknown") || clean.contains("not found") {
+                log.append("accel_offset \(axis) failed — firmware may not support this command yet.")
+                return false
+            }
+        }
+
+        // Persist to flash
+        _ = await runCommandCollectingOutput("config save", perLineTimeout: 1.0, maxLines: 10)
+
+        // Reload to keep local state in sync
+        await loadGlobalConfig()
+        return true
+    }
+
+    /// Load the device-wide global config JSON export and populate currentGlobalConfig.
+    /// Also sets firmwareVersion, patchCount, and discoveredCurrentPatch from the envelope when present.
+    public func loadGlobalConfig() async {
+        log.append("Discovery: loading global config…")
+        let raw = await runCommandCollectingOutput("config export global", perLineTimeout: 0.8, maxLines: 200)
+        guard let export = CLIOutputParser.parseGlobalExport(from: raw) else {
+            log.append("Discovery: failed to parse global config export.")
+            return
+        }
+        currentGlobalConfig = export.global
+        if let v = export.firmwareVersion, !v.isEmpty {
+            firmwareVersion = v
+        }
+        if let n = export.patchCount, n > 0 {
+            patchCount = n
+        }
+        discoveredCurrentPatch = export.currentPatch
+        log.append("Discovery: global config loaded — scale=\(export.global.accelScale), offset=\(export.global.accelOffset)")
     }
 
     /// Parse firmware version from `status` output.
@@ -365,9 +456,32 @@ class USBSerialManager: NSObject, ObservableObject, ORSSerialPortDelegate {
         return nil
     }
 
+    // MARK: - Terminal
+
+    /// Send a raw command from the terminal, echoing it locally so input is visible in the output.
+    func sendRawCommand(_ text: String) {
+        guard let port = connectedPort, port.isOpen else { return }
+        // Echo the typed command into the terminal output (Zephyr shell may or may not echo)
+        terminalOutput += text + "\r\n"
+        // Send with CRLF — Zephyr shell requires CR+LF
+        let cmd = text.hasSuffix("\r\n") ? text : text + "\r\n"
+        port.send(cmd.data(using: .utf8)!)
+        log.append("> " + text)
+    }
+
+    /// Clear the terminal output buffer.
+    func clearTerminalOutput() {
+        terminalOutput = ""
+    }
+
     // MARK: - ORSSerialPortDelegate
 
     func serialPort(_ serialPort: ORSSerialPort, didReceive data: Data) {
+        // Feed raw bytes into the terminal output stream (ANSI stripped for readability)
+        if let str = String(data: data, encoding: .utf8) {
+            terminalOutput += CLIOutputParser.stripANSI(str)
+        }
+
         // Append to buffer
         readBuffer.append(data)
         // If we have a line terminator, fulfill continuation
@@ -444,6 +558,8 @@ class USBSerialManager: NSObject, ObservableObject, ORSSerialPortDelegate {
         capabilitiesDiscovered = false
         parsedTopologyConfigs = []
         currentPatchConfig = nil
+        currentGlobalConfig = nil
+        discoveredCurrentPatch = nil
     }
 }
 

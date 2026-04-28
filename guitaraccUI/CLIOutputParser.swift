@@ -225,6 +225,33 @@ struct CLIOutputParser {
         return patch
     }
 
+    // MARK: - Global Export
+
+    /// Parsed result of `config export global` — includes both device-wide config and
+    /// the envelope-level metadata added in firmware v3.
+    struct GlobalExport: Equatable {
+        let global: GlobalConfig
+        let firmwareVersion: String?
+        let patchCount: Int?
+        let currentPatch: Int?
+    }
+
+    /// Parse output of `config export global` into a GlobalExport model.
+    /// Returns nil if no valid JSON is found or decoding fails.
+    static func parseGlobalExport(from raw: String) -> GlobalExport? {
+        guard let jsonStr = extractJSON(from: raw),
+              let data = jsonStr.data(using: .utf8) else { return nil }
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        guard let envelope = try? decoder.decode(GlobalExportEnvelope.self, from: data) else { return nil }
+        return GlobalExport(
+            global: envelope.config.global,
+            firmwareVersion: envelope.firmwareVersion,
+            patchCount: envelope.patchCount,
+            currentPatch: envelope.currentPatch
+        )
+    }
+
     // MARK: - Topology Instances
 
     /// Parse `topo show` output into an array of VirtualPortConfig, one per topology instance,
@@ -333,6 +360,17 @@ struct CLIOutputParser {
         let config: PatchExportConfig
         struct PatchExportConfig: Codable {
             let patches: [PatchConfig]
+        }
+    }
+
+    private struct GlobalExportEnvelope: Codable {
+        let version: Int
+        let firmwareVersion: String?
+        let patchCount: Int?
+        let currentPatch: Int?
+        let config: GlobalExportConfig
+        struct GlobalExportConfig: Codable {
+            let global: GlobalConfig
         }
     }
 }

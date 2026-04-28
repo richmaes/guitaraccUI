@@ -40,4 +40,21 @@ struct PatchConfig: Codable, Equatable {
     var defaultMixerType: Int?           // v2+: mixer type for dual-input topologies (0-4)
     var topologies: [TopologyExport]?    // v2+: per-patch topology routing instances
     var functions: [FunctionExport]?     // v2+: per-patch function unit parameters
+    // Note: accel_scale / accel_offset live in GlobalConfig, not per-patch.
+}
+
+/// Device-wide settings decoded from `config export global` JSON.
+/// These are hardware-level constants shared across all patches.
+struct GlobalConfig: Codable, Equatable {
+    var defaultPatch: Int
+    var midiChannel: Int
+    var maxGuitars: Int
+    var bleScanIntervalMs: Int
+    var ledBrightness: Int
+    var runningAverageEnable: Bool
+    var runningAverageDepth: Int
+    /// Full-scale G-force calibration per axis in milli-g (6 values: X, Y, Z, Roll, Pitch, Yaw).
+    var accelScale: [Int]
+    /// Center-point offset calibration per axis in milli-g (6 values).
+    var accelOffset: [Int]
 }

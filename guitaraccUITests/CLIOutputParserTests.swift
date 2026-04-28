@@ -1,8 +1,9 @@
 // CLIOutputParserTests.swift
 // Parser tests written against verbatim device output.
 //
-// All raw string constants were captured live from /dev/cu.usbmodem0010501849051
-// on 2026-04-22 at 115200 baud, including command echo and ANSI prompt.
+// Raw string constants captured live from /dev/cu.usbmodem0010501849051
+// at 115200 baud, including command echo and ANSI prompt.
+// Last capture: 2026-04-24. Firmware v3 adds firmware_version/patch_count/current_patch to global export.
 
 import Testing
 @testable import guitaraccUI
@@ -31,41 +32,43 @@ struct CLIOutputParserTests {
     // MARK: - Status
 
     // Verbatim capture of `status` command output (including echoed command and prompt).
+    // 2026-04-24: guitar connected, MIDI active, config area B seq=72.
     private let statusRaw =
         "status\r\n" +
-        "Config area: A (seq=1)\r\n" +
+        "Config area: B (seq=72)\r\n" +
         "\r\n" +
         "=== GuitarAcc Basestation Status ===\r\n" +
-        "Connected devices: 0\r\n" +
-        "MIDI output: Inactive\r\n" +
+        "Connected devices: 1\r\n" +
+        "MIDI output: Active\r\n" +
         "\u{1b}[1;32mGuitarAcc:~$ \u{1b}[m"
 
     @Test func statusParsesConfigAreaLetter() {
-        #expect(CLIOutputParser.parseStatus(statusRaw).configArea == "A")
+        #expect(CLIOutputParser.parseStatus(statusRaw).configArea == "B")
     }
 
     @Test func statusParsesConfigAreaSeq() {
-        #expect(CLIOutputParser.parseStatus(statusRaw).configAreaSeq == 1)
+        #expect(CLIOutputParser.parseStatus(statusRaw).configAreaSeq == 72)
     }
 
     @Test func statusParsesConnectedDevices() {
-        #expect(CLIOutputParser.parseStatus(statusRaw).connectedDevices == 0)
-    }
-
-    @Test func statusParsesMIDIOutputInactive() {
-        #expect(CLIOutputParser.parseStatus(statusRaw).midiOutputActive == false)
+        #expect(CLIOutputParser.parseStatus(statusRaw).connectedDevices == 1)
     }
 
     @Test func statusParsesMIDIOutputActive() {
-        let raw = "MIDI output: Active\r\n"
-        #expect(CLIOutputParser.parseStatus(raw).midiOutputActive == true)
+        #expect(CLIOutputParser.parseStatus(statusRaw).midiOutputActive == true)
+    }
+
+    @Test func statusParsesMIDIOutputInactive() {
+        // Synthetic string — device is currently active, so test inactive path separately.
+        let raw = "Connected devices: 0\r\nMIDI output: Inactive\r\n"
+        #expect(CLIOutputParser.parseStatus(raw).midiOutputActive == false)
     }
 
     @Test func statusANSIPromptDoesNotPolluteParsedValues() {
         // ANSI escape in prompt must not be misread as a device count or area.
         let info = CLIOutputParser.parseStatus(statusRaw)
-        #expect(info.connectedDevices == 0)
-        #expect(info.configArea == "A")
+        #expect(info.connectedDevices == 1)
+        #expect(info.configArea == "B")
     }
 
     @Test func statusNoFirmwareVersionInRealOutput() {
@@ -190,8 +193,9 @@ struct CLIOutputParserTests {
 
     // MARK: - JSON Extraction
 
-    // Verbatim capture of `config export patch 0` after firmware update (2026-04-22).
-    // Topology and function data are now embedded in the patch export JSON.
+    // Verbatim capture of `config export patch 0` — 2026-04-24.
+    // Firmware now emits pretty-printed JSON (multi-line per topology/function entry).
+    // accel_scale / accel_offset belong in GlobalConfig, not per-patch.
     private let patchExportRaw =
         "config export patch 0\r\n" +
         "{\r\n" +
@@ -205,22 +209,112 @@ struct CLIOutputParserTests {
         "        \"midi_deadzone\": 1,\r\n" +
         "        \"default_mixer_type\": 2,\r\n" +
         "        \"topologies\": [\r\n" +
-        "          {\"instance\": 0,\"enabled\": true,\"topology_type\": 1,\"accel_inputs\": [0, 0],\"func_units\": [0, 0],\"midi_outputs\": [16, 0]},\r\n" +
-        "          {\"instance\": 1,\"enabled\": true,\"topology_type\": 1,\"accel_inputs\": [1, 0],\"func_units\": [1, 0],\"midi_outputs\": [17, 0]},\r\n" +
-        "          {\"instance\": 2,\"enabled\": true,\"topology_type\": 1,\"accel_inputs\": [2, 0],\"func_units\": [2, 0],\"midi_outputs\": [18, 0]},\r\n" +
-        "          {\"instance\": 3,\"enabled\": true,\"topology_type\": 1,\"accel_inputs\": [3, 0],\"func_units\": [3, 0],\"midi_outputs\": [19, 0]},\r\n" +
-        "          {\"instance\": 4,\"enabled\": true,\"topology_type\": 1,\"accel_inputs\": [4, 0],\"func_units\": [4, 0],\"midi_outputs\": [20, 0]},\r\n" +
-        "          {\"instance\": 5,\"enabled\": true,\"topology_type\": 1,\"accel_inputs\": [5, 0],\"func_units\": [5, 0],\"midi_outputs\": [21, 0]}\r\n" +
+        "          {\r\n" +
+        "            \"instance\": 0,\r\n" +
+        "            \"enabled\": true,\r\n" +
+        "            \"topology_type\": 1,\r\n" +
+        "            \"accel_inputs\": [0, 0],\r\n" +
+        "            \"func_units\": [0, 0],\r\n" +
+        "            \"midi_outputs\": [16, 0]\r\n" +
+        "          },\r\n" +
+        "          {\r\n" +
+        "            \"instance\": 1,\r\n" +
+        "            \"enabled\": true,\r\n" +
+        "            \"topology_type\": 1,\r\n" +
+        "            \"accel_inputs\": [1, 0],\r\n" +
+        "            \"func_units\": [1, 0],\r\n" +
+        "            \"midi_outputs\": [17, 0]\r\n" +
+        "          },\r\n" +
+        "          {\r\n" +
+        "            \"instance\": 2,\r\n" +
+        "            \"enabled\": true,\r\n" +
+        "            \"topology_type\": 1,\r\n" +
+        "            \"accel_inputs\": [2, 0],\r\n" +
+        "            \"func_units\": [2, 0],\r\n" +
+        "            \"midi_outputs\": [18, 0]\r\n" +
+        "          },\r\n" +
+        "          {\r\n" +
+        "            \"instance\": 3,\r\n" +
+        "            \"enabled\": true,\r\n" +
+        "            \"topology_type\": 1,\r\n" +
+        "            \"accel_inputs\": [3, 0],\r\n" +
+        "            \"func_units\": [3, 0],\r\n" +
+        "            \"midi_outputs\": [19, 0]\r\n" +
+        "          },\r\n" +
+        "          {\r\n" +
+        "            \"instance\": 4,\r\n" +
+        "            \"enabled\": true,\r\n" +
+        "            \"topology_type\": 1,\r\n" +
+        "            \"accel_inputs\": [4, 0],\r\n" +
+        "            \"func_units\": [4, 0],\r\n" +
+        "            \"midi_outputs\": [20, 0]\r\n" +
+        "          },\r\n" +
+        "          {\r\n" +
+        "            \"instance\": 5,\r\n" +
+        "            \"enabled\": true,\r\n" +
+        "            \"topology_type\": 1,\r\n" +
+        "            \"accel_inputs\": [5, 0],\r\n" +
+        "            \"func_units\": [5, 0],\r\n" +
+        "            \"midi_outputs\": [21, 0]\r\n" +
+        "          }\r\n" +
         "        ],\r\n" +
         "        \"functions\": [\r\n" +
-        "          {\"unit\": 0,\"enabled\": true,\"function_type\": 2,\"param_count\": 4,\"params\": [-2000, 2000, 0, 127, 0, 0]},\r\n" +
-        "          {\"unit\": 1,\"enabled\": true,\"function_type\": 2,\"param_count\": 4,\"params\": [-2000, 2000, 0, 127, 0, 0]},\r\n" +
-        "          {\"unit\": 2,\"enabled\": true,\"function_type\": 2,\"param_count\": 4,\"params\": [-2000, 2000, 0, 127, 0, 0]},\r\n" +
-        "          {\"unit\": 3,\"enabled\": true,\"function_type\": 2,\"param_count\": 4,\"params\": [-2000, 2000, 0, 127, 0, 0]},\r\n" +
-        "          {\"unit\": 4,\"enabled\": true,\"function_type\": 2,\"param_count\": 4,\"params\": [-2000, 2000, 0, 127, 0, 0]},\r\n" +
-        "          {\"unit\": 5,\"enabled\": true,\"function_type\": 2,\"param_count\": 4,\"params\": [-2000, 2000, 0, 127, 0, 0]},\r\n" +
-        "          {\"unit\": 6,\"enabled\": true,\"function_type\": 2,\"param_count\": 4,\"params\": [-2000, 2000, 0, 127, 0, 0]},\r\n" +
-        "          {\"unit\": 7,\"enabled\": true,\"function_type\": 2,\"param_count\": 4,\"params\": [-2000, 2000, 0, 127, 0, 0]}\r\n" +
+        "          {\r\n" +
+        "            \"unit\": 0,\r\n" +
+        "            \"enabled\": true,\r\n" +
+        "            \"function_type\": 2,\r\n" +
+        "            \"param_count\": 4,\r\n" +
+        "            \"params\": [-2000, 2000, 0, 127, 0, 0]\r\n" +
+        "          },\r\n" +
+        "          {\r\n" +
+        "            \"unit\": 1,\r\n" +
+        "            \"enabled\": true,\r\n" +
+        "            \"function_type\": 2,\r\n" +
+        "            \"param_count\": 4,\r\n" +
+        "            \"params\": [-2000, 2000, 0, 127, 0, 0]\r\n" +
+        "          },\r\n" +
+        "          {\r\n" +
+        "            \"unit\": 2,\r\n" +
+        "            \"enabled\": true,\r\n" +
+        "            \"function_type\": 2,\r\n" +
+        "            \"param_count\": 4,\r\n" +
+        "            \"params\": [-2000, 2000, 0, 127, 0, 0]\r\n" +
+        "          },\r\n" +
+        "          {\r\n" +
+        "            \"unit\": 3,\r\n" +
+        "            \"enabled\": true,\r\n" +
+        "            \"function_type\": 2,\r\n" +
+        "            \"param_count\": 4,\r\n" +
+        "            \"params\": [-2000, 2000, 0, 127, 0, 0]\r\n" +
+        "          },\r\n" +
+        "          {\r\n" +
+        "            \"unit\": 4,\r\n" +
+        "            \"enabled\": true,\r\n" +
+        "            \"function_type\": 2,\r\n" +
+        "            \"param_count\": 4,\r\n" +
+        "            \"params\": [-2000, 2000, 0, 127, 0, 0]\r\n" +
+        "          },\r\n" +
+        "          {\r\n" +
+        "            \"unit\": 5,\r\n" +
+        "            \"enabled\": true,\r\n" +
+        "            \"function_type\": 2,\r\n" +
+        "            \"param_count\": 4,\r\n" +
+        "            \"params\": [-2000, 2000, 0, 127, 0, 0]\r\n" +
+        "          },\r\n" +
+        "          {\r\n" +
+        "            \"unit\": 6,\r\n" +
+        "            \"enabled\": true,\r\n" +
+        "            \"function_type\": 2,\r\n" +
+        "            \"param_count\": 4,\r\n" +
+        "            \"params\": [-2000, 2000, 0, 127, 0, 0]\r\n" +
+        "          },\r\n" +
+        "          {\r\n" +
+        "            \"unit\": 7,\r\n" +
+        "            \"enabled\": true,\r\n" +
+        "            \"function_type\": 2,\r\n" +
+        "            \"param_count\": 4,\r\n" +
+        "            \"params\": [-2000, 2000, 0, 127, 0, 0]\r\n" +
+        "          }\r\n" +
         "        ]\r\n" +
         "      }\r\n" +
         "    ]\r\n" +
@@ -318,6 +412,19 @@ struct CLIOutputParserTests {
         #expect(func7?.unit == 7)
     }
 
+    // accel_scale / accel_offset belong in GlobalConfig, not per-patch.
+    // Confirm they are absent from the patch export envelope.
+    @Test func parsePatchExportDoesNotContainAccelScale() {
+        // accel calibration is a device-wide hardware constant stored in global config.
+        let json = CLIOutputParser.extractJSON(from: patchExportRaw) ?? ""
+        #expect(!json.contains("accel_scale"))
+    }
+
+    @Test func parsePatchExportDoesNotContainAccelOffset() {
+        let json = CLIOutputParser.extractJSON(from: patchExportRaw) ?? ""
+        #expect(!json.contains("accel_offset"))
+    }
+
     // Backward compatibility: older firmware JSON (no v2 fields) should still decode.
     @Test func parsePatchExportOldFirmwareDecodesGracefully() {
         let legacyRaw =
@@ -330,6 +437,140 @@ struct CLIOutputParserTests {
         #expect(config?.defaultMixerType == nil)  // absent in old firmware
         #expect(config?.topologies == nil)
         #expect(config?.functions == nil)
+    }
+
+    // MARK: - Global Export Parsing
+
+    // Verbatim capture of `config export global` — 2026-04-24, pre-v3 firmware.
+    // Used as the backward-compat baseline: no firmware_version/patch_count/current_patch fields.
+    // accel values are all zeros (factory default / not yet calibrated).
+    private let globalExportRaw =
+        "config export global\r\n" +
+        "{\r\n" +
+        "  \"version\": 1,\r\n" +
+        "  \"config\": {\r\n" +
+        "    \"global\": {\r\n" +
+        "      \"default_patch\": 0,\r\n" +
+        "      \"midi_channel\": 0,\r\n" +
+        "      \"max_guitars\": 4,\r\n" +
+        "      \"ble_scan_interval_ms\": 100,\r\n" +
+        "      \"led_brightness\": 128,\r\n" +
+        "      \"running_average_enable\": true,\r\n" +
+        "      \"running_average_depth\": 5,\r\n" +
+        "      \"accel_scale\": [0, 0, 0, 0, 0, 0],\r\n" +
+        "      \"accel_offset\": [0, 0, 0, 0, 0, 0]\r\n" +
+        "    }\r\n" +
+        "  }\r\n" +
+        "}\r\n" +
+        "\u{1b}[1;32mGuitarAcc:~$ \u{1b}[m"
+
+    @Test func parseGlobalExportReturnsNonNil() {
+        #expect(CLIOutputParser.parseGlobalExport(from: globalExportRaw) != nil)
+    }
+
+    @Test func parseGlobalExportDefaultPatch() {
+        #expect(CLIOutputParser.parseGlobalExport(from: globalExportRaw)?.global.defaultPatch == 0)
+    }
+
+    @Test func parseGlobalExportMidiChannel() {
+        #expect(CLIOutputParser.parseGlobalExport(from: globalExportRaw)?.global.midiChannel == 0)
+    }
+
+    @Test func parseGlobalExportMaxGuitars() {
+        #expect(CLIOutputParser.parseGlobalExport(from: globalExportRaw)?.global.maxGuitars == 4)
+    }
+
+    @Test func parseGlobalExportLedBrightness() {
+        #expect(CLIOutputParser.parseGlobalExport(from: globalExportRaw)?.global.ledBrightness == 128)
+    }
+
+    @Test func parseGlobalExportRunningAverageEnabled() {
+        #expect(CLIOutputParser.parseGlobalExport(from: globalExportRaw)?.global.runningAverageEnable == true)
+    }
+
+    @Test func parseGlobalExportRunningAverageDepth() {
+        #expect(CLIOutputParser.parseGlobalExport(from: globalExportRaw)?.global.runningAverageDepth == 5)
+    }
+
+    @Test func parseGlobalExportAccelScaleCount() {
+        #expect(CLIOutputParser.parseGlobalExport(from: globalExportRaw)?.global.accelScale.count == 6)
+    }
+
+    @Test func parseGlobalExportAccelOffsetCount() {
+        #expect(CLIOutputParser.parseGlobalExport(from: globalExportRaw)?.global.accelOffset.count == 6)
+    }
+
+    @Test func parseGlobalExportAccelScaleAllZeroCurrentDevice() {
+        // Device is at factory default / not yet calibrated — all scale values are 0.
+        #expect(CLIOutputParser.parseGlobalExport(from: globalExportRaw)?.global.accelScale == [0, 0, 0, 0, 0, 0])
+    }
+
+    @Test func parseGlobalExportAccelOffsetAllZeroCurrentDevice() {
+        #expect(CLIOutputParser.parseGlobalExport(from: globalExportRaw)?.global.accelOffset == [0, 0, 0, 0, 0, 0])
+    }
+
+    @Test func parseGlobalExportAccelValuesDecodeWithMixedValues() {
+        // Synthetic: verify non-zero values decode correctly for calibrated devices.
+        let raw =
+            "config export global\r\n" +
+            "{\"version\":1,\"config\":{\"global\":{" +
+            "\"default_patch\":0,\"midi_channel\":1,\"max_guitars\":4," +
+            "\"ble_scan_interval_ms\":100,\"led_brightness\":128," +
+            "\"running_average_enable\":true,\"running_average_depth\":5," +
+            "\"accel_scale\":[2000,2000,2000,2000,2000,2000]," +
+            "\"accel_offset\":[0,0,200,-50,0,0]}}}\r\n" +
+            "\u{1b}[1;32mGuitarAcc:~$ \u{1b}[m"
+        let export = CLIOutputParser.parseGlobalExport(from: raw)
+        #expect(export?.global.accelScale == [2000, 2000, 2000, 2000, 2000, 2000])
+        #expect(export?.global.accelOffset == [0, 0, 200, -50, 0, 0])
+    }
+
+    @Test func parseGlobalExportReturnsNilForErrorResponse() {
+        let errorRaw = "error: unknown command\r\n\u{1b}[1;32mGuitarAcc:~$ \u{1b}[m"
+        #expect(CLIOutputParser.parseGlobalExport(from: errorRaw) == nil)
+    }
+
+    // Pre-v3 firmware omits firmware_version/patch_count/current_patch — all should be nil.
+    @Test func parseGlobalExportOldFirmwareMissingV3FieldsAreNil() {
+        let export = CLIOutputParser.parseGlobalExport(from: globalExportRaw)
+        #expect(export?.firmwareVersion == nil)
+        #expect(export?.patchCount == nil)
+        #expect(export?.currentPatch == nil)
+    }
+
+    // Synthetic v3 firmware response — new fields are at the envelope top level, not inside config.global.
+    // Format: { "version": 1, "firmware_version": "...", "patch_count": N, "current_patch": N, "config": { "global": {...} } }
+    private let globalExportV3Raw =
+        "config export global\r\n" +
+        "{\"version\":1," +
+        "\"firmware_version\":\"1.3.0\"," +
+        "\"patch_count\":16," +
+        "\"current_patch\":2," +
+        "\"config\":{\"global\":{" +
+        "\"default_patch\":0,\"midi_channel\":1,\"max_guitars\":4," +
+        "\"ble_scan_interval_ms\":100,\"led_brightness\":128," +
+        "\"running_average_enable\":true,\"running_average_depth\":5," +
+        "\"accel_scale\":[2000,2000,2000,2000,2000,2000]," +
+        "\"accel_offset\":[0,0,0,0,0,0]}}}\r\n" +
+        "\u{1b}[1;32mGuitarAcc:~$ \u{1b}[m"
+
+    @Test func parseGlobalExportV3FirmwareVersion() {
+        #expect(CLIOutputParser.parseGlobalExport(from: globalExportV3Raw)?.firmwareVersion == "1.3.0")
+    }
+
+    @Test func parseGlobalExportV3PatchCount() {
+        #expect(CLIOutputParser.parseGlobalExport(from: globalExportV3Raw)?.patchCount == 16)
+    }
+
+    @Test func parseGlobalExportV3CurrentPatch() {
+        #expect(CLIOutputParser.parseGlobalExport(from: globalExportV3Raw)?.currentPatch == 2)
+    }
+
+    @Test func parseGlobalExportV3ExistingFieldsStillDecode() {
+        // Confirm pre-existing fields are unaffected by the new ones.
+        let export = CLIOutputParser.parseGlobalExport(from: globalExportV3Raw)
+        #expect(export?.global.midiChannel == 1)
+        #expect(export?.global.accelScale == [2000, 2000, 2000, 2000, 2000, 2000])
     }
 
     // MARK: - VirtualPortConfig derivation
